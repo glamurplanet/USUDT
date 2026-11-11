@@ -1,0 +1,18 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: usudt
+      POSTGRES_USER: usudt
+      POSTGRES_PASSWORD: change_me
+    ports:
+      - "5432:5432"
+    volumes:
+      - usudt_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U usudt -d usudt"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  usudt_data:
