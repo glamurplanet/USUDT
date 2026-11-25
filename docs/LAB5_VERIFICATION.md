@@ -21,4 +21,4 @@
 согласно `docs/SETUP.md`. Запуск тестов: `python -m pytest -q`.
 
 Отдельные граничные проверки математических функций содержатся в
-`tests/test_lab5_additional.py`. При финальной проверке 25.11.2026 пять дополнительных математических тестов прошли локально (`5 passed`). Перед запуском совпадение копий `app/analytics.py`, `app/logic.py` и `tests/test_lab5_additional.py` с файлами репозитория проверено по Git-хешам. Это не подтверждает результаты полного набора API-тестов, CI или интеграционного испытания PostgreSQL.
+`tests/test_lab5_additional.py`. При финальной проверке 25.11.2026 выполнена команда `python -m pytest -q tests/test_api.py tests/test_logic.py tests/test_lab5_additional.py` на локальной SQLite: `13 passed, 2 warnings`. Совпадение исходных файлов и тестов с репозиторием подтверждено по Git-хешам. Два предупреждения связаны с устаревающим обработчиком `on_event` FastAPI. Генерация DDL для девяти ORM-таблиц отдельно проверена через диалект PostgreSQL. Запуск PostgreSQL и результат GitHub Actions в рамках этой проверки не подтверждены.
