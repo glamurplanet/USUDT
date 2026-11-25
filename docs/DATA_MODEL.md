@@ -24,37 +24,38 @@ erDiagram
 ```mermaid
 erDiagram
     signals {
-      bigint id PK
+      integer id PK
       varchar code UK
       varchar name
     }
     sources {
-      bigint id PK
+      integer id PK
       varchar code UK
       varchar name
     }
     measurements {
-      bigint id PK
-      bigint signal_id FK
-      bigint source_id FK
+      integer id PK
+      integer signal_id FK
+      integer source_id FK
       varchar external_id
       timestamptz observed_at
+      timestamptz received_at
       integer vehicle_count
       integer period_seconds
       double_precision occupancy
       double_precision speed_kmh
     }
     programs {
-      bigint id PK
-      bigint signal_id FK
+      integer id PK
+      integer signal_id FK
       varchar code
       varchar name
       boolean approved
       boolean current
     }
     model_estimates {
-      bigint id PK
-      bigint program_id FK
+      integer id PK
+      integer program_id FK
       varchar scenario
       double_precision cars_delay
       double_precision buses_delay
@@ -65,17 +66,17 @@ erDiagram
       integer tram_count
     }
     forecasts {
-      bigint id PK
-      bigint signal_id FK
+      integer id PK
+      integer signal_id FK
       timestamptz calculated_at
       integer horizon_min
       double_precision intensity_per_hour
       varchar method
     }
     decisions {
-      bigint id PK
-      bigint signal_id FK
-      bigint program_id FK
+      integer id PK
+      integer signal_id FK
+      integer program_id FK
       varchar engineer
       text reason
       varchar status
@@ -83,16 +84,16 @@ erDiagram
       timestamptz confirmed_at
     }
     incidents {
-      bigint id PK
-      bigint signal_id FK
+      integer id PK
+      integer signal_id FK
       varchar category
       text description
       varchar status
       timestamptz occurred_at
     }
     appeals {
-      bigint id PK
-      bigint signal_id FK
+      integer id PK
+      integer signal_id FK
       varchar registry_code UK
       text summary
       timestamptz period_start
@@ -115,6 +116,12 @@ erDiagram
 не создаётся благодаря ограничению `uq_source_message`. Код программы уникален
 в пределах конкретного СО. Контактные данные заявителей не хранятся.
 
-Структура находится как минимум в третьей нормальной форме: названия СО и источников
-не повторяются в измерениях, сведения о программах не дублируются в решениях,
-а оценки по сценариям выделены в отдельную таблицу.
+Справочники СО и источников вынесены в отдельные таблицы, оценки по сценариям
+отделены от программ. В `decisions` поле `signal_id` хранится наряду с `program_id`
+для выборки по объекту. При создании решения проверяется соответствие этих ссылок,
+поэтому строгая третья нормальная форма всей физической схемы не заявляется.
+
+Составные ограничения уникальности: `(source_id, external_id)`, `(signal_id, code)`,
+`(program_id, scenario)`. Первичные и внешние ключи имеют тип INTEGER.
+Поля обязательны, кроме `measurements.speed_kmh` и `decisions.confirmed_at`.
+Значения `default` в ORM задаются приложением при вставке.
