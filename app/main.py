@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from .database import Base, engine, get_db
 from . import models as m, schemas as s
 from .logic import completeness_and_freshness, predict_intensity, weighted_delay
+from .analytics import horizon_forecasts, hourly_intensity, queue_remainder, compare_periods
 
 app = FastAPI(title='УСУДТ', description='Анализ дорожного движения и поддержка решений инженера по ОДД',version='0.1.0')
 BASE = Path(__file__).resolve().parent
@@ -77,11 +78,30 @@ def forecast(signal_code:str,db:Session=Depends(get_db)):
     window=measurement_window(db,signal.id)
     ok,reason=completeness_and_freshness(window)
     if not ok:return {'signal':signal_code,'available':False,'reason':reason,'last_measurement':max((v.observed_at.isoformat() for v in window),default=None)}
-    calc=predict_intensity(window)
-    for horizon in (5,10,15):
-        db.add(m.Forecast(signal_id=signal.id,horizon_min=horizon,intensity_per_hour=calc['intensity_per_hour'],method=calc['method']))
+    from sqlalchemy import desc
+    history = list(db.scalars(
+        select(m.Measurement).where(m.Measurement.signal_id == signal.id)
+        .order_by(desc(m.Measurement.observed_at)).limit(1000)
+    ))
+    try:
+        estimates = horizon_forecasts(history)
+    except ValueError as exc:
+        return {'signal': signal_code, 'available': False, 'reason': str(exc)}
+    for horizon, forecast_data in estimates.items():
+        db.add(m.Forecast(
+            signal_id=signal.id, horizon_min=horizon,
+            intensity_per_hour=forecast_data['intensity_per_hour'],
+            method=forecast_data['method'],
+        ))
     db.commit()
-    return {'signal':signal_code,'available':True,'horizons_min':[5,10,15],**calc,'note':'Одинаковая базовая оценка на каждом горизонте; в дальнейшем проверяется по фактическим измерениям'}
+    return {
+        'signal': signal_code, 'available': True,
+        'horizons_min': [5,10,15],
+        'forecasts': estimates,
+        'method': estimates[5]['method'],
+        'intensity_per_hour': estimates[5]['intensity_per_hour'],
+        'note': 'Метод выбирается по MAE для каждого горизонта при наличии проверочной истории'
+    }
 
 @app.post('/api/programs')
 def create_program(data:s.ProgramIn,db:Session=Depends(get_db)):
@@ -164,6 +184,48 @@ def report(db:Session=Depends(get_db)):
     for sig in db.scalars(select(m.Signal).order_by(m.Signal.id)):
         out.append({'signal':sig.code,'name':sig.name,'measurements':db.scalar(select(func.count(m.Measurement.id)).where(m.Measurement.signal_id==sig.id)),'decisions':db.scalar(select(func.count(m.Decision.id)).where(m.Decision.signal_id==sig.id)),'incidents':db.scalar(select(func.count(m.Incident.id)).where(m.Incident.signal_id==sig.id)),'appeals':db.scalar(select(func.count(m.Appeal.id)).where(m.Appeal.signal_id==sig.id))})
     return {'objects':out,'note':'Оперативная сводка по сохранённым данным; сравнительная оценка до/после требует сопоставимых периодов'}
+
+
+@app.get('/api/queue/{signal_code}')
+def calculate_queue(signal_code: str, previous: float, arrivals: float,
+                    served: float | None = None, db: Session = Depends(get_db)):
+    get_signal(db,signal_code)
+    try:
+        remainder=queue_remainder(previous,arrivals,served)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc))
+    return {'signal':signal_code,'queue_vehicles':remainder,
+            'note':'Расчёт только при заданных параметрах обслуживания'}
+
+@app.get('/api/report/periods/{signal_code}')
+def periods_report(signal_code: str, before_start: datetime, before_end: datetime,
+                   after_start: datetime, after_end: datetime,
+                   before_conditions: str, after_conditions: str,
+                   db:Session=Depends(get_db)):
+    sig=get_signal(db,signal_code)
+    intervals=[(before_start,before_end),(after_start,after_end)]
+    values=[]
+    for start,end in intervals:
+        if start.tzinfo is None or end.tzinfo is None or start>=end:
+            raise HTTPException(422,'Неверные границы периода или отсутствует часовой пояс')
+        rows=list(db.scalars(select(m.Measurement).where(
+            m.Measurement.signal_id==sig.id,
+            m.Measurement.observed_at>=start,
+            m.Measurement.observed_at<end
+        ).order_by(m.Measurement.observed_at)))
+        values.append([hourly_intensity(r.vehicle_count,r.period_seconds) for r in rows])
+    result=compare_periods(values[0],values[1],before_conditions,after_conditions)
+    return {'signal':signal_code,**result}
+
+@app.patch('/api/incidents/{incident_id}/status')
+def change_incident_status(incident_id:int, status:str, db:Session=Depends(get_db)):
+    if status not in ('new','in_progress','closed'):
+        raise HTTPException(422,'Недопустимый статус события')
+    incident=db.get(m.Incident,incident_id)
+    if incident is None:raise HTTPException(404,'Событие не найдено')
+    incident.status=status
+    db.commit()
+    return {'id':incident_id,'status':status}
 
 @app.on_event('startup')
 def startup():
