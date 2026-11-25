@@ -1,0 +1,4 @@
+source_code,external_id,signal_code,observed_at,vehicle_count,period_seconds,occupancy,speed_kmh
+I01,example-001,S01,2026-11-11T08:00:00+03:00,24,60,34,31.5
+I01,example-002,S01,2026-11-11T08:01:00+03:00,27,60,37,29.4
+I01,example-003,S01,2026-11-11T08:02:00+03:00,21,60,30,34.0
