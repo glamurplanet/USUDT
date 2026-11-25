@@ -36,4 +36,4 @@ jobs:
       - name: Initialize PostgreSQL and run tests
         run: |
           python -m app.init_db
-          pytest -q
+          python -m pytest -q
